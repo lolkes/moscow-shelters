@@ -1,28 +1,24 @@
 name: Import production project
 
-on:
-  push:
-    paths:
-      - '_project_payload.b64'
+on: push
 
 permissions:
   contents: write
 
 jobs:
   import:
+    if: ${{ hashFiles('_project_chunk_*') != '' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Restore project files
         run: |
           python - <<'PY'
-          import base64, zipfile
+          import base64, zipfile, glob
           from pathlib import Path
-          payload = Path('_project_payload.b64')
-          data = base64.b64decode(payload.read_text())
-          Path('/tmp/project.zip').write_bytes(data)
+          chunks = sorted(glob.glob('_project_chunk_*'))
+          payload = ''.join(Path(p).read_text() for p in chunks)
+          Path('/tmp/project.zip').write_bytes(base64.b64decode(payload))
           with zipfile.ZipFile('/tmp/project.zip') as z:
               z.extractall('/tmp/project')
           root = Path('/tmp/project')
@@ -32,9 +28,9 @@ jobs:
                   dst = Path(rel)
                   dst.parent.mkdir(parents=True, exist_ok=True)
                   dst.write_bytes(p.read_bytes())
-          payload.unlink()
+          for p in chunks:
+              Path(p).unlink()
           PY
-
       - name: Commit project
         run: |
           git config user.name 'github-actions[bot]'
