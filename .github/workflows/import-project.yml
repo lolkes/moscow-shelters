@@ -7,10 +7,11 @@ permissions:
 
 jobs:
   import:
-    if: ${{ hashFiles('moscow_shelters_PRODUCTION_no_telegram.zip') != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check ZIP
+        run: test -f moscow_shelters_PRODUCTION_no_telegram.zip
       - name: Restore project files from ZIP
         run: |
           python - <<'PY'
