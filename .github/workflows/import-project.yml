@@ -17,11 +17,12 @@ jobs:
           import zipfile
           from pathlib import Path
           zpath = Path('moscow_shelters_PRODUCTION_no_telegram.zip')
-          out = Path('/tmp/project')
-          out.mkdir(parents=True, exist_ok=True)
           with zipfile.ZipFile(zpath) as z:
-              z.extractall(out)
-          root = out
+              z.extractall('/tmp/project')
+          root = Path('/tmp/project')
+          dirs = [p for p in root.iterdir() if p.is_dir()]
+          if len(dirs) == 1 and not (root / 'app').exists():
+              root = dirs[0]
           for p in root.rglob('*'):
               if p.is_file() and '.git' not in p.parts:
                   rel = p.relative_to(root)
@@ -29,12 +30,13 @@ jobs:
                   dst.parent.mkdir(parents=True, exist_ok=True)
                   dst.write_bytes(p.read_bytes())
           zpath.unlink()
-          Path('_project_chunk_aa').unlink(missing_ok=True)
+          for p in Path('.').glob('_project_chunk_*'):
+              p.unlink()
           PY
       - name: Commit project
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git diff --cached --quiet || git commit -m 'Upload complete production project'
+          git diff --cached --quiet || git commit -m 'Import production project files'
           git push
