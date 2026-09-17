@@ -7,29 +7,29 @@ permissions:
 
 jobs:
   import:
-    if: ${{ hashFiles('_project_chunk_*') != '' }}
+    if: ${{ hashFiles('moscow_shelters_PRODUCTION_no_telegram.zip') != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Restore project files
+      - name: Restore project files from ZIP
         run: |
           python - <<'PY'
-          import base64, zipfile, glob
+          import zipfile
           from pathlib import Path
-          chunks = sorted(glob.glob('_project_chunk_*'))
-          payload = ''.join(Path(p).read_text() for p in chunks)
-          Path('/tmp/project.zip').write_bytes(base64.b64decode(payload))
-          with zipfile.ZipFile('/tmp/project.zip') as z:
-              z.extractall('/tmp/project')
-          root = Path('/tmp/project')
+          zpath = Path('moscow_shelters_PRODUCTION_no_telegram.zip')
+          out = Path('/tmp/project')
+          out.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(zpath) as z:
+              z.extractall(out)
+          root = out
           for p in root.rglob('*'):
               if p.is_file() and '.git' not in p.parts:
                   rel = p.relative_to(root)
                   dst = Path(rel)
                   dst.parent.mkdir(parents=True, exist_ok=True)
                   dst.write_bytes(p.read_bytes())
-          for p in chunks:
-              Path(p).unlink()
+          zpath.unlink()
+          Path('_project_chunk_aa').unlink(missing_ok=True)
           PY
       - name: Commit project
         run: |
