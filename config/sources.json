@@ -1,0 +1,27 @@
+{
+  "refresh_minutes": 60,
+  "verify_days": 7,
+  "safe_mode": true,
+  "sources": [
+    {
+      "name": "РосПриют — Москва и МО",
+      "url": "https://rospriut.ru/shelters/msk/",
+      "type": "website"
+    },
+    {
+      "name": "РосПриют — собаки",
+      "url": "https://rospriut.ru/dogs/",
+      "type": "website"
+    },
+    {
+      "name": "РосПриют — кошки",
+      "url": "https://rospriut.ru/cats/",
+      "type": "website"
+    },
+    {
+      "name": "Мосприют — каталог",
+      "url": "https://mospriut.ru/catalog",
+      "type": "website"
+    }
+  ]
+}
