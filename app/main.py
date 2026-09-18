@@ -944,6 +944,7 @@ def shelter_animals(sid: str, species: Optional[str] = None):
         out=[]
         for a in rows:
             d=serialize(a); d["photos"]=photo_urls(db,a.id); out.append(d)
+        return out
 
 def _catalog_record_is_real(a):
     """Final safety net: only animal profiles enter the public catalog."""
