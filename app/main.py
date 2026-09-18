@@ -649,7 +649,11 @@ def import_all():
     import_external_catalogs()
     import_rospriut_catalog("dogs", pages=6)
     import_rospriut_catalog("cats", pages=1)
-    discover_new_shelters(); discover_sources()
+    discover_new_shelters()
+    discover_shelter_websites()
+    from app.adapters import import_external_catalogs
+    import_external_catalogs()
+    discover_sources()
     with SessionLocal() as db:
         sources=[(s.id,s.name,s.source_type,s.source_url) for s in db.scalars(select(Shelter).where(Shelter.active.is_(True),Shelter.import_enabled.is_(True))).all()]
     for sid,name,source_type,source_url in sources:
@@ -688,6 +692,60 @@ async def lifespan(app: FastAPI):
     try: await task
     except asyncio.CancelledError: pass
 
+
+# --- public shelter website discovery/import --- 
+def discover_shelter_websites():
+    """Resolve official websites from the shelter pages in the public registry."""
+    r = fetch(ROS_PRIUT_INDEX)
+    if not r or r.status_code >= 400:
+        return 0
+    links = []
+    for m in re.finditer(r'href=["\\']([^"\\']+)["\\'][^>]*>(.*?)</a>', r.text, re.I | re.S):
+        href = urljoin(str(r.url), html_lib.unescape(m.group(1)))
+        label = clean_text(m.group(2))
+        if "/shelters/msk/" in href and label:
+            if href not in links:
+                links.append(href)
+    updated = 0
+    for shelter_page in links[:100]:
+        rr = fetch(shelter_page)
+        if not rr or rr.status_code >= 400:
+            continue
+        candidates = []
+        # Prefer an explicit "Сайт:" link from the registry page.
+        for m in re.finditer(r'(?:Сайт(?:ы)?|Сайт)\\s*:\\s*(?:<[^>]+>\\s*)?<a[^>]+href=["\\']([^"\\']+)["\\']', rr.text, re.I | re.S):
+            candidates.append(urljoin(str(rr.url), html_lib.unescape(m.group(1))))
+        # Also accept visible absolute links on the shelter page, excluding the registry itself.
+        for m in re.findall(r'href=["\\'](https?://[^"\\']+)["\\']', rr.text, re.I):
+            u = html_lib.unescape(m)
+            if "rospriut.ru" not in (urlparse(u).hostname or "").lower():
+                candidates.append(u)
+        candidates = list(dict.fromkeys(candidates))
+        if not candidates:
+            continue
+        with SessionLocal() as db:
+            matches = db.scalars(select(Shelter).where(Shelter.active.is_(True))).all()
+            target = None
+            page_name = ""
+            hm = re.search(r"<h1[^>]*>(.*?)</h1>", rr.text, re.I | re.S)
+            if hm: page_name = normalize(clean_text(hm.group(1))).replace("приют ","").strip()
+            for s in matches:
+                sn = normalize(s.name).replace("приют ","").strip()
+                if page_name and (sn == page_name or sn in page_name or page_name in sn):
+                    target = s
+                    break
+            if not target:
+                continue
+            for u in candidates:
+                if robots_allowed(u):
+                    target.website = u
+                    if target.source_type in ("none", "website", "rospriut"):
+                        target.source_url = u
+                    target.status = "active"
+                    updated += 1
+                    break
+            db.commit()
+    return updated
 
 # --- v13 automatic source helpers ---
 import hashlib
