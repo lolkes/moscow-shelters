@@ -384,7 +384,7 @@ def upsert_animal(db, shelter: Shelter, item: dict, source_type: str):
     a = db.scalar(select(Animal).where(Animal.original_url == link))
     if not a:
         a = db.scalar(select(Animal).where(Animal.shelter_id == shelter.id, Animal.fingerprint == fp))
-    species = infer_species(text); age = infer_age(text); sex = infer_sex(text)
+    species = item.get("species_hint") or infer_species(text); age = infer_age(text); sex = infer_sex(text)
     if not age:
         m_year = re.search(r"Год рождения\\s*:\\s*(\\d{4})", text, re.I)
         if m_year: age = f"рожд. {m_year.group(1)}"
