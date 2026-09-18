@@ -468,7 +468,7 @@ def _rospriut_detail(url: str, species: str):
     if not title:
         return None
     shelter_m = re.search(
-        r"Приют\s*:\s*<a[^>]+href=["']([^"']+)["'][^>]*>(.*?)</a>",
+        r'''Приют\s*:\s*<a[^>]+href=["']([^"']+)["'][^>]*>(.*?)</a>''',
         html, re.I | re.S
     )
     shelter_name = clean_text(shelter_m.group(2)) if shelter_m else ""
