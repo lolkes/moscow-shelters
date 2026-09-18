@@ -185,7 +185,7 @@ def _pechatniki_listing_items(html, base_url, species, main):
             if parent is None:
                 break
             txt=main.clean_text(parent.get_text(" ", strip=True))
-            if 10 <= len(txt) <= 600 and re.search(r"\b\\d+\\s*(?:год|года|лет|месяц|месяца|месяцев)\\b", txt, re.I) and re.search(r"\b(?:мальчик|девочка)\\b", txt, re.I):
+            if 10 <= len(txt) <= 600 and re.search(r"\b\d+\\s*(?:год|года|лет|месяц|месяца|месяцев)\\b", txt, re.I) and re.search(r"\b(?:мальчик|девочка)\\b", txt, re.I):
                 card_text=txt
                 img=parent.find("img")
                 if img:
@@ -230,7 +230,7 @@ def import_pechatniki(main):
                 title_m=re.search(r"<h1[^>]*>(.*?)</h1>", detail.text, re.I|re.S)
                 detail_title=main.clean_text(title_m.group(1) if title_m else "")
                 detail_text=main.clean_text(detail.text)
-                if detail_title and len(detail_title)<255 and not re.search(r"\b(?:ищет дом|нашли дом)\\b", detail_title, re.I):
+                if detail_title and len(detail_title)<255 and not re.search(r"\b(?:ищет дом|нашли дом)\b", detail_title, re.I):
                     item["title"]=detail_title
                 detail_photos=main.extract_page_images(item["link"], detail.text)
                 if detail_photos:
