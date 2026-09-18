@@ -155,11 +155,55 @@ def import_dorinvest(main):
             db.commit()
     return created,updated
 
+
+def import_generic_shelter_sites(main, max_sites=60, max_pages_per_site=25):
+    """Conservative same-host crawler for every seeded shelter website."""
+    with main.SessionLocal() as db:
+        rows=db.scalars(main.select(main.Shelter).where(main.Shelter.active.is_(True), main.Shelter.website.is_not(None)).order_by(main.Shelter.name)).all()
+        targets=[(s.id,s.name,s.website) for s in rows[:max_sites]]
+    created=updated=0
+    for sid,sname,website in targets:
+        root=website.rstrip('/')
+        queue=[root, root+'/', root+'/catalog/', root+'/animals/', root+'/animal/', root+'/pets/', root+'/dogs/', root+'/cats/', root+'/adoption/']
+        seen=set(); details=[]
+        while queue and len(seen)<max_pages_per_site:
+            url=queue.pop(0)
+            if url in seen or not _same_host(url,root): continue
+            seen.add(url)
+            r=main.fetch(url)
+            if not r or r.status_code>=400: continue
+            html=r.text or ''
+            title_m=re.search(r'<title[^>]*>(.*?)</title>',html,re.I|re.S)
+            title=main.clean_text(title_m.group(1) if title_m else '')
+            body=main.clean_text(html)
+            path=urlparse(url).path.rstrip('/').lower()
+            signal=re.search(r'/(animal|animals|pet|pets|dog|dogs|cat|cats|adopt|adoption|pristroj|pristroy|catalog|zhivot)/',url,re.I)
+            facts=re.search(r'\b(возраст|год рождения|пол|окрас|порода|стерилизац|кастрац|привив|пристро|ищет дом|ищет хозя|собак|кошк|пёс|пес)\b',body,re.I)
+            if signal and facts and path not in ('/catalog','/animals','/animal','/pets','/dogs','/cats','/adoption'):
+                details.append((url,html,title,body))
+            for href in re.findall(r'href=["\\\']([^"\\\']+)',html,re.I):
+                u=urljoin(str(r.url),href).split('#',1)[0]
+                if _same_host(u,root) and u not in seen and any(k in u.lower() for k in ('/animal','/animals','/pet','/pets','/dog','/dogs','/cat','/cats','/adopt','/catalog','/pristro','/zhivot')):
+                    queue.append(u)
+        for url,html,title,body in list(dict((x[0],x) for x in details).values())[:80]:
+            species='cat' if re.search(r'кош|кот|cat',body+' '+url,re.I) else 'dog' if re.search(r'собак|пёс|пес|dog',body+' '+url,re.I) else 'other'
+            item={'title':title[:255] or 'Животное','description':body[:10000],'link':url,'photo_urls':main.extract_page_images(url,html),'species_hint':species}
+            with main.SessionLocal() as db:
+                shelter=db.get(main.Shelter,sid)
+                if not shelter: continue
+                c,u=main.upsert_animal(db,shelter,item,'website')
+                created+=int(c); updated+=int(u and not c)
+                shelter.last_import_at=main.now(); shelter.last_source_ok_at=main.now(); shelter.last_error=None; shelter.consecutive_failures=0
+                db.commit()
+    with main.SessionLocal() as db:
+        main.update_counts(db); db.commit()
+    return created,updated
+
 def import_external_catalogs():
     # Fail independently: one inaccessible site must not prevent other sources.
     from app import main
-    totals={"yuna":(0,0),"dorinvest":(0,0)}
-    for key,fn in (("yuna",import_yuna),("dorinvest",import_dorinvest)):
+    totals={"yuna":(0,0),"dorinvest":(0,0),"generic":(0,0)}
+    for key,fn in (("yuna",import_yuna),("dorinvest",import_dorinvest),("generic",import_generic_shelter_sites)):
         try:
             totals[key]=fn(main)
         except Exception:
