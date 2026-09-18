@@ -22,6 +22,13 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 BASE = Path(__file__).resolve().parent.parent
 DB_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE / 'shelters.db'}")
+# Render/Neon usually provides postgresql://. SQLAlchemy's default PostgreSQL
+# dialect expects psycopg2, while this project intentionally uses psycopg v3.
+# Normalize the URL so the installed psycopg (v3) driver is selected.
+if DB_URL.startswith("postgresql://"):
+    DB_URL = DB_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+elif DB_URL.startswith("postgres://"):
+    DB_URL = DB_URL.replace("postgres://", "postgresql+psycopg://", 1)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "15"))
 USER_AGENT = "MoscowSheltersCatalog/1.0 (+public-source-reader)"
