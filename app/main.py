@@ -385,6 +385,9 @@ def upsert_animal(db, shelter: Shelter, item: dict, source_type: str):
     if not a:
         a = db.scalar(select(Animal).where(Animal.shelter_id == shelter.id, Animal.fingerprint == fp))
     species = infer_species(text); age = infer_age(text); sex = infer_sex(text)
+    if not age:
+        m_year = re.search(r"Год рождения\\s*:\\s*(\\d{4})", text, re.I)
+        if m_year: age = f"рожд. {m_year.group(1)}"
     dup = duplicate_candidate(db, shelter.id, item, species, fp)
     if dup and dup.original_url != link:
         a = db.scalar(select(Animal).where(Animal.original_url == link))
@@ -428,6 +431,110 @@ def update_counts(db):
 
 def photo_urls(db, animal_id: int):
     return [x.url for x in db.scalars(select(AnimalPhoto).where(AnimalPhoto.animal_id==animal_id, AnimalPhoto.is_active.is_(True)).order_by(AnimalPhoto.sort_order, AnimalPhoto.id)).all()]
+
+def _rospriut_shelter(db, name: str, href: str | None):
+    """Resolve a RosPriut shelter to our canonical shelter record."""
+    clean = normalize(name).replace("приют ", "").strip()
+    rows = db.scalars(select(Shelter).where(Shelter.active.is_(True))).all()
+    for s in rows:
+        sn = normalize(s.name).replace("приют ", "").strip()
+        if sn == clean or clean in sn or sn in clean:
+            if href and not s.source_url:
+                s.source_url = href
+            return s
+    slug = ""
+    if href:
+        m = re.search(r"/shelters/msk/([^/]+)/?", href)
+        if m: slug = m.group(1)
+    sid = slug or ("rospriut-" + hashlib.sha256((name + (href or "")).encode("utf-8")).hexdigest()[:20])
+    s = db.get(Shelter, sid)
+    if not s:
+        s = Shelter(
+            id=sid, name=name, region="Москва", city="Москва",
+            source_url=href, website=None, verified=True, active=True,
+            source_type="rospriut", import_enabled=False, status="active"
+        )
+        db.add(s); db.flush()
+    return s
+
+
+def _rospriut_detail(url: str, species: str):
+    r = fetch(url)
+    if not r or r.status_code >= 400:
+        return None
+    html = r.text
+    title_m = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.I | re.S)
+    title = clean_text(title_m.group(1)) if title_m else ""
+    if not title:
+        return None
+    shelter_m = re.search(
+        r"Приют\\s*:\\s*<a[^>]+href=["']([^"']+)["'][^>]*>(.*?)</a>",
+        html, re.I | re.S
+    )
+    shelter_name = clean_text(shelter_m.group(2)) if shelter_m else ""
+    shelter_href = urljoin(str(r.url), shelter_m.group(1)) if shelter_m else None
+
+    parts = []
+    for m in re.findall(r"<blockquote[^>]*>(.*?)</blockquote>", html, re.I | re.S):
+        t = clean_text(m)
+        if t: parts.append(t)
+    if not parts:
+        body_text = clean_text(html)
+        parts = [body_text[:10000]]
+
+    images = extract_page_images(str(r.url), html)
+    text = clean_text(html)
+    item = {
+        "title": title[:255],
+        "description": " ".join(parts)[:10000],
+        "link": str(r.url),
+        "photo_urls": images,
+        "species_hint": species,
+        "shelter_name": shelter_name,
+        "shelter_href": shelter_href,
+    }
+    return item
+
+
+def import_rospriut_catalog(kind: str, pages: int = 6) -> tuple[int, int]:
+    """Import current public animal cards from RosPriut, preserving original links."""
+    base = f"https://rospriut.ru/{kind}/"
+    urls = [base]
+    if kind == "dogs":
+        urls += [f"{base}page/{n}/" for n in range(2, pages + 1)]
+    detail_urls = []
+    for page_url in urls:
+        r = fetch(page_url)
+        if not r or r.status_code >= 400:
+            continue
+        for href in re.findall(r'href=["\']([^"\']+)["\']', r.text, re.I):
+            u = urljoin(str(r.url), html_lib.unescape(href))
+            if re.match(rf"https?://rospriut\\.ru/{kind}/[^/]+/?$", u, re.I):
+                if u not in detail_urls:
+                    detail_urls.append(u)
+    detail_urls = detail_urls[:MAX_ITEMS_PER_SOURCE]
+    if not detail_urls:
+        return 0, 0
+
+    created = updated = 0
+    for url in detail_urls:
+        item = _rospriut_detail(url, "dog" if kind == "dogs" else "cat")
+        if not item or not item.get("shelter_name"):
+            continue
+        with SessionLocal() as db:
+            shelter = _rospriut_shelter(db, item["shelter_name"], item.get("shelter_href"))
+            db.commit()
+            c, u = upsert_animal(
+                db, shelter, item, "rospriut_" + ("dog" if kind == "dogs" else "cat")
+            )
+            created += int(c)
+            updated += int(u and not c)
+            db.commit()
+    with SessionLocal() as db:
+        update_counts(db)
+        db.commit()
+    return created, updated
+
 
 def import_rss(shelter_id: str) -> tuple[int, int]:
     with SessionLocal() as db:
@@ -536,6 +643,9 @@ def release_lock():
         if lock: lock.locked_until=None; db.commit()
 
 def import_all():
+    # RosPriut is our first real public animal catalog source; import it directly.
+    import_rospriut_catalog("dogs", pages=6)
+    import_rospriut_catalog("cats", pages=1)
     discover_new_shelters(); discover_sources()
     with SessionLocal() as db:
         sources=[(s.id,s.name,s.source_type,s.source_url) for s in db.scalars(select(Shelter).where(Shelter.active.is_(True),Shelter.import_enabled.is_(True))).all()]
