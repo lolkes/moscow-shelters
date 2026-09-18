@@ -643,7 +643,10 @@ def release_lock():
         if lock: lock.locked_until=None; db.commit()
 
 def import_all():
-    # RosPriut is our first real public animal catalog source; import it directly.
+    # Import real public catalogs from multiple shelter ecosystems.
+    # Each adapter keeps the original animal URL and photo URLs.
+    from app.adapters import import_external_catalogs
+    import_external_catalogs()
     import_rospriut_catalog("dogs", pages=6)
     import_rospriut_catalog("cats", pages=1)
     discover_new_shelters(); discover_sources()
