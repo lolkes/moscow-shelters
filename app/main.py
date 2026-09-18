@@ -940,24 +940,50 @@ def shelter_animals(sid: str, species: Optional[str] = None):
             d=serialize(a); d["photos"]=photo_urls(db,a.id); out.append(d)
         return out
 
+def _catalog_record_is_real(a):
+    """Final safety net: only animal profiles enter the public catalog."""
+    text=normalize(f"{a.name or ''} {a.description or ''}")
+    url=(a.original_url or "").lower()
+    news_terms=("благодарим","спасибо","новости","мероприят","выставк","акция",
+                "субботник","день открытых дверей","волонт","помощь приют",
+                "закуп","поставка","корм","сбор средств","донат","праздник",
+                "поздрав","отчет","отчёт","стикер","скачали","компания")
+    if any(t in text for t in news_terms):
+        return False
+    if re.search(r"/(?:news|novosti|blog|articles?|posts?)(?:/|$)", url, re.I):
+        return False
+    profile_terms=("возраст","год рождения","пол","окрас","порода","стерилиз",
+                   "кастрац","вакцинир","привит","ищет дом","ищет хозя",
+                   "пристройство","куратор")
+    animal_terms=("собак","собака","пёс","пес","щен","кошк","кошка","кот",
+                  "котён","котен","dog","cat")
+    return any(t in text for t in profile_terms) and any(t in text for t in animal_terms)
+
 @app.get("/api/animals")
 def animals(species: Optional[str] = None, region: Optional[str] = None, city: Optional[str] = None,
-            q: Optional[str] = None, page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=100)):
+            q: Optional[str] = None, page: int = Query(1, ge=1), limit: int = Query(24, ge=1, le=100)):
     with SessionLocal() as db:
-        stmt = select(Animal).join(Shelter, Shelter.id == Animal.shelter_id).where(Animal.active.is_(True), Animal.status != "duplicate")
+        stmt = select(Animal).join(Shelter, Shelter.id == Animal.shelter_id).where(
+            Animal.active.is_(True), Animal.status != "duplicate"
+        )
         if species: stmt = stmt.where(Animal.species == species)
         if region: stmt = stmt.where(Shelter.region == region)
         if city: stmt = stmt.where(or_(Animal.city.ilike(f"%{city}%"), Shelter.city.ilike(f"%{city}%")))
         if q:
             like=f"%{q}%"
-            stmt = stmt.where(or_(Animal.name.ilike(like), Animal.description.ilike(like), Animal.breed.ilike(like), Animal.color.ilike(like)))
-        total=db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-        rows = db.execute(stmt.order_by(Animal.created_at.desc()).offset((page-1)*limit).limit(limit)).scalars().all()
+            stmt = stmt.where(or_(Animal.name.ilike(like), Animal.description.ilike(like),
+                                  Animal.breed.ilike(like), Animal.color.ilike(like)))
+        candidates=db.execute(stmt.order_by(Animal.created_at.desc()).limit(1000)).scalars().all()
+        rows=[a for a in candidates if _catalog_record_is_real(a)]
+        total=len(rows)
+        start=(page-1)*limit
+        rows=rows[start:start+limit]
         items=[]
         for a in rows:
             data=serialize(a); data["photos"]=photo_urls(db,a.id)
             items.append({"animal":data,"shelter":serialize(db.get(Shelter,a.shelter_id))})
-        return {"items":items,"page":page,"limit":limit,"total":total,"pages":(total+limit-1)//limit}
+        pages=(total+limit-1)//limit
+        return {"items":items,"page":page,"limit":limit,"total":total,"pages":pages}
 
 @app.get("/api/animals/{animal_id}")
 def animal(animal_id: int):
