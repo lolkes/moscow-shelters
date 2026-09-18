@@ -6,6 +6,7 @@ currently published animal cards from the shelter/municipal sites themselves,
 respect robots.txt through app.main.fetch(), and preserve the original URL.
 """
 import re
+from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from datetime import datetime, timezone
 
@@ -156,6 +157,105 @@ def import_dorinvest(main):
     return created,updated
 
 
+def _pechatniki_listing_items(html, base_url, species, main):
+    """Extract animal cards from the official Pechatniki catalog pages.
+    The site renders rich profiles, but the listing itself reliably exposes
+    the animal name, age/sex and card image, so we use both layers.
+    """
+    soup=BeautifulSoup(html or "", "html.parser")
+    out=[]
+    for anchor in soup.find_all("a", href=True):
+        href=anchor.get("href","").strip()
+        url=urljoin(base_url, href).split("#",1)[0]
+        if not _same_host(url, base_url):
+            continue
+        path=urlparse(url).path.lower().rstrip("/")
+        if path in ("", "/dogs", "/cats", "/catalog", "/about", "/help", "/contacts"):
+            continue
+        if re.search(r"/(?:privacy|questions|help|about|contacts|take_cat|take_dog|catalog)(?:/|$)", path):
+            continue
+        name=main.clean_text(anchor.get_text(" ", strip=True))
+        if not name or len(name) > 120:
+            continue
+        parent=anchor
+        card_text=""
+        card_img=None
+        for _ in range(5):
+            parent=parent.parent
+            if parent is None:
+                break
+            txt=main.clean_text(parent.get_text(" ", strip=True))
+            if 10 <= len(txt) <= 600 and re.search(r"\\b\\d+\\s*(?:год|года|лет|месяц|месяца|месяцев)\\b", txt, re.I) and re.search(r"\\b(?:мальчик|девочка)\\b", txt, re.I):
+                card_text=txt
+                img=parent.find("img")
+                if img:
+                    src=img.get("src") or img.get("data-src") or img.get("data-original")
+                    if src:
+                        card_img=urljoin(base_url, src)
+                break
+        if not card_text:
+            continue
+        if not re.search(r"\\b(?:собак|собака|пёс|пес|кош|кошка|кот)\\b", card_text+" "+name, re.I):
+            # Species is supplied by the catalog section; no need to reject a
+            # card just because the compact listing omits the species word.
+            pass
+        out.append({
+            "title": name[:255],
+            "description": card_text[:10000],
+            "link": url,
+            "photo_urls": [card_img] if card_img and main.same_origin_image(card_img, url) else [],
+            "species_hint": species,
+        })
+    unique={}
+    for item in out:
+        unique[item["link"]]=item
+    return list(unique.values())
+
+def import_pechatniki(main):
+    """Official dog + cat catalogs from the municipal Pechatniki shelter."""
+    seeds=[
+        ("https://pechatniki-pets.ru/dogs","dog"),
+        ("https://cats.pechatniki-pets.ru/","cat"),
+    ]
+    created=updated=0
+    for seed,species in seeds:
+        r=main.fetch(seed)
+        if not r or r.status_code>=400:
+            continue
+        items=_pechatniki_listing_items(r.text, str(r.url), species, main)
+        for item in items[:180]:
+            # Try the detail page for a richer description and original photos.
+            detail=main.fetch(item["link"])
+            if detail and detail.status_code<400:
+                title_m=re.search(r"<h1[^>]*>(.*?)</h1>", detail.text, re.I|re.S)
+                detail_title=main.clean_text(title_m.group(1) if title_m else "")
+                detail_text=main.clean_text(detail.text)
+                if detail_title and len(detail_title)<255 and not re.search(r"\\b(?:ищет дом|нашли дом)\\b", detail_title, re.I):
+                    item["title"]=detail_title
+                detail_photos=main.extract_page_images(item["link"], detail.text)
+                if detail_photos:
+                    item["photo_urls"]=detail_photos
+                # Do not replace the reliable listing facts with a tiny meta
+                # description returned by the site.
+                if len(detail_text)>len(item["description"])+80:
+                    item["description"]=detail_text[:10000]
+            with main.SessionLocal() as db:
+                shelter=_ensure_shelter(
+                    db,"Приют Печатники","https://pechatniki-pets.ru",
+                    "Москва","Москва",main
+                )
+                c,u=main.upsert_animal(db,shelter,item,"pechatniki")
+                created+=int(c); updated+=int(u and not c)
+                shelter.last_import_at=main.now()
+                shelter.last_source_ok_at=main.now()
+                shelter.last_error=None
+                shelter.consecutive_failures=0
+                db.commit()
+    with main.SessionLocal() as db:
+        main.update_counts(db); db.commit()
+    return created,updated
+
+
 def _is_animal_profile(url, title, body):
     """Strict classifier: shelter news/posts are never animal cards."""
     text=(title or "")+" "+(body or "")
@@ -240,8 +340,8 @@ def import_generic_shelter_sites(main, max_sites=60, max_pages_per_site=20):
 def import_external_catalogs():
     # Fail independently: one inaccessible site must not prevent other sources.
     from app import main
-    totals={"yuna":(0,0),"dorinvest":(0,0),"generic":(0,0)}
-    for key,fn in (("yuna",import_yuna),("dorinvest",import_dorinvest),("generic",import_generic_shelter_sites)):
+    totals={"yuna":(0,0),"dorinvest":(0,0),"pechatniki":(0,0),"generic":(0,0)}
+    for key,fn in (("yuna",import_yuna),("dorinvest",import_dorinvest),("pechatniki",import_pechatniki),("generic",import_generic_shelter_sites)):
         try:
             totals[key]=fn(main)
         except Exception:
