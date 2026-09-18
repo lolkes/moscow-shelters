@@ -426,7 +426,8 @@ def upsert_animal(db, shelter: Shelter, item: dict, source_type: str):
 def update_counts(db):
     shelters = db.scalars(select(Shelter)).all()
     for s in shelters:
-        s.animal_count = db.scalar(select(func.count(Animal.id)).where(Animal.shelter_id == s.id, Animal.active.is_(True), Animal.status != "duplicate")) or 0
+        rows = db.scalars(select(Animal).where(Animal.shelter_id == s.id, Animal.active.is_(True), Animal.status != "duplicate")).all()
+        s.animal_count = sum(_catalog_record_is_real(a) for a in rows)
 
 
 def photo_urls(db, animal_id: int):
@@ -893,10 +894,14 @@ def health():
 @app.get("/api/stats")
 def stats():
     with SessionLocal() as db:
+        active_rows=db.scalars(select(Animal).where(Animal.active.is_(True), Animal.status != "duplicate")).all()
+        real_rows=[a for a in active_rows if _catalog_record_is_real(a)]
         return {
             "shelters": db.scalar(select(func.count(Shelter.id)).where(Shelter.active.is_(True))) or 0,
             "verified_shelters": db.scalar(select(func.count(Shelter.id)).where(Shelter.active.is_(True), Shelter.verified.is_(True))) or 0,
-            "animals_active": db.scalar(select(func.count(Animal.id)).where(Animal.active.is_(True), Animal.status != "duplicate")) or 0,
+            "animals_active": len(real_rows),
+            "dogs_active": sum(a.species=="dog" for a in real_rows),
+            "cats_active": sum(a.species=="cat" for a in real_rows),
             "animals_archived": db.scalar(select(func.count(Animal.id)).where(Animal.status == "archived")) or 0,
             "sources_enabled": db.scalar(select(func.count(Shelter.id)).where(Shelter.import_enabled.is_(True))) or 0,
             "last_import": (lambda x: x.isoformat() if x else None)(db.scalar(select(func.max(ImportRun.finished_at))))
@@ -935,10 +940,10 @@ def shelter_animals(sid: str, species: Optional[str] = None):
         if normalized_species in aliases:
             stmt = stmt.where(Animal.species == aliases[normalized_species])
         rows=db.scalars(stmt.order_by(Animal.created_at.desc())).all()
+        rows=[a for a in rows if _catalog_record_is_real(a)]
         out=[]
         for a in rows:
             d=serialize(a); d["photos"]=photo_urls(db,a.id); out.append(d)
-        return out
 
 def _catalog_record_is_real(a):
     """Final safety net: only animal profiles enter the public catalog."""
@@ -957,6 +962,8 @@ def _catalog_record_is_real(a):
                    "пристройство","куратор")
     animal_terms=("собак","собака","пёс","пес","щен","кошк","кошка","кот",
                   "котён","котен","dog","cat")
+    if a.source_type in ("rospriut_dog","rospriut_cat","pechatniki","yuna","dorinvest") and a.species in ("dog","cat"):
+        return True
     return any(t in text for t in profile_terms) and any(t in text for t in animal_terms)
 
 @app.get("/api/animals")
@@ -989,7 +996,8 @@ def animals(species: Optional[str] = None, region: Optional[str] = None, city: O
 def animal(animal_id: int):
     with SessionLocal() as db:
         a = db.get(Animal, animal_id)
-        if not a: raise HTTPException(404, "Животное не найдено")
+        if not a or not a.active or a.status == "duplicate" or not _catalog_record_is_real(a):
+            raise HTTPException(404, "Животное не найдено")
         s = db.get(Shelter, a.shelter_id)
         data=serialize(a); data["photos"]=photo_urls(db,a.id); return {"animal": data, "shelter": serialize(s) if s else None}
 
