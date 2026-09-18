@@ -643,17 +643,15 @@ def release_lock():
         if lock: lock.locked_until=None; db.commit()
 
 def import_all():
-    # Import real public catalogs from multiple shelter ecosystems.
-    # Each adapter keeps the original animal URL and photo URLs.
+    # First resolve the official website for every shelter in our registry,
+    # then read its public animal catalog. No fake animals are generated.
+    discover_new_shelters()
+    discover_shelter_websites()
+    discover_sources()
     from app.adapters import import_external_catalogs
     import_external_catalogs()
     import_rospriut_catalog("dogs", pages=6)
     import_rospriut_catalog("cats", pages=1)
-    discover_new_shelters()
-    discover_shelter_websites()
-    from app.adapters import import_external_catalogs
-    import_external_catalogs()
-    discover_sources()
     with SessionLocal() as db:
         sources=[(s.id,s.name,s.source_type,s.source_url) for s in db.scalars(select(Shelter).where(Shelter.active.is_(True),Shelter.import_enabled.is_(True))).all()]
     for sid,name,source_type,source_url in sources:
