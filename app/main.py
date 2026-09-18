@@ -386,7 +386,7 @@ def upsert_animal(db, shelter: Shelter, item: dict, source_type: str):
         a = db.scalar(select(Animal).where(Animal.shelter_id == shelter.id, Animal.fingerprint == fp))
     species = item.get("species_hint") or infer_species(text); age = infer_age(text); sex = infer_sex(text)
     if not age:
-        m_year = re.search(r"Год рождения\\s*:\\s*(\\d{4})", text, re.I)
+        m_year = re.search(r"Год рождения\s*:\s*(\d{4})", text, re.I)
         if m_year: age = f"рожд. {m_year.group(1)}"
     dup = duplicate_candidate(db, shelter.id, item, species, fp)
     if dup and dup.original_url != link:
@@ -468,7 +468,7 @@ def _rospriut_detail(url: str, species: str):
     if not title:
         return None
     shelter_m = re.search(
-        r"Приют\\s*:\\s*<a[^>]+href=["']([^"']+)["'][^>]*>(.*?)</a>",
+        r"Приют\s*:\s*<a[^>]+href=["']([^"']+)["'][^>]*>(.*?)</a>",
         html, re.I | re.S
     )
     shelter_name = clean_text(shelter_m.group(2)) if shelter_m else ""
@@ -509,7 +509,7 @@ def import_rospriut_catalog(kind: str, pages: int = 6) -> tuple[int, int]:
             continue
         for href in re.findall(r'href=["\']([^"\']+)["\']', r.text, re.I):
             u = urljoin(str(r.url), html_lib.unescape(href))
-            if re.match(rf"https?://rospriut\\.ru/{kind}/[^/]+/?$", u, re.I):
+            if re.match(rf"https?://rospriut\.ru/{kind}/[^/]+/?$", u, re.I):
                 if u not in detail_urls:
                     detail_urls.append(u)
     detail_urls = detail_urls[:MAX_ITEMS_PER_SOURCE]
@@ -642,37 +642,90 @@ def release_lock():
         lock=db.get(AutomationLock,1)
         if lock: lock.locked_until=None; db.commit()
 
+def cleanup_non_animal_posts():
+    """Deactivate cards that are clearly shelter news/posts, not animal profiles."""
+    news_terms = (
+        "благодарим", "спасибо", "помощь приют", "новости", "мероприят",
+        "выставк", "акция", "субботник", "день открытых дверей", "волонт",
+        "поставк", "корм", "закуп", "сбор средств", "донат", "праздник",
+        "поздрав", "отчет", "отчёт", "наши новости"
+    )
+    profile_terms = (
+        "возраст", "год рождения", "пол", "окрас", "порода",
+        "стерилизац", "кастрац", "вакцинир", "привит", "ищет дом",
+        "ищет хозя", "готов к пристрой", "готова к пристрой"
+    )
+    with SessionLocal() as db:
+        rows=db.scalars(select(Animal).where(
+            Animal.active.is_(True), Animal.status != "duplicate"
+        )).all()
+        changed=0
+        for a in rows:
+            text=normalize(f"{a.name} {a.description or ''}")
+            url=(a.original_url or "").lower()
+            has_profile=any(x in text for x in profile_terms)
+            looks_news=any(x in text for x in news_terms) or re.search(
+                r"/(?:news|novosti|blog|articles?|posts?)(?:/|$)", url, re.I
+            )
+            if looks_news and not has_profile:
+                a.active=False
+                a.status="archived"
+                a.archived_at=now()
+                a.updated_at=now()
+                changed += 1
+        update_counts(db)
+        db.commit()
+        return changed
+
 def import_all():
-    # First resolve the official website for every shelter in our registry,
-    # then read its public animal catalog. No fake animals are generated.
     discover_new_shelters()
     discover_shelter_websites()
     discover_sources()
+    cleanup_non_animal_posts()
+
     from app.adapters import import_external_catalogs
     import_external_catalogs()
+    cleanup_non_animal_posts()
+
+    # RosPriut is a public animal-card catalog and is the reliable fallback.
     import_rospriut_catalog("dogs", pages=6)
     import_rospriut_catalog("cats", pages=1)
+
     with SessionLocal() as db:
-        sources=[(s.id,s.name,s.source_type,s.source_url) for s in db.scalars(select(Shelter).where(Shelter.active.is_(True),Shelter.import_enabled.is_(True))).all()]
+        sources=[(s.id,s.name,s.source_type,s.source_url)
+                 for s in db.scalars(select(Shelter).where(
+                     Shelter.active.is_(True), Shelter.import_enabled.is_(True)
+                 )).all()]
     for sid,name,source_type,source_url in sources:
         with SessionLocal() as db:
-            run=ImportRun(shelter_id=sid,source_type=source_type,source_url=source_url,started_at=now()); db.add(run); db.commit(); run_id=run.id
+            run=ImportRun(shelter_id=sid,source_type=source_type,
+                          source_url=source_url,started_at=now())
+            db.add(run); db.commit(); run_id=run.id
         try:
-            if source_type!="rss": raise RuntimeError(f"Нет безопасного автоматического адаптера для {source_type}")
+            if source_type!="rss":
+                raise RuntimeError(f"Нет безопасного автоматического адаптера для {source_type}")
             created,updated=import_rss(sid)
             with SessionLocal() as db:
-                run=db.get(ImportRun,run_id); run.imported=created; run.updated=updated; run.status="ok"; run.finished_at=now(); db.commit()
+                run=db.get(ImportRun,run_id)
+                run.imported=created; run.updated=updated
+                run.status="ok"; run.finished_at=now(); db.commit()
         except Exception as exc:
             with SessionLocal() as db:
-                run=db.get(ImportRun,run_id); run.status="error"; run.error=str(exc)[:2000]; run.finished_at=now()
+                run=db.get(ImportRun,run_id)
+                run.status="error"; run.error=str(exc)[:2000]; run.finished_at=now()
                 s=db.get(Shelter,sid)
-                if s: s.last_error=str(exc)[:2000]; s.consecutive_failures=(s.consecutive_failures or 0)+1
+                if s:
+                    s.last_error=str(exc)[:2000]
+                    s.consecutive_failures=(s.consecutive_failures or 0)+1
                 db.commit()
 
 def automation_cycle():
     if not acquire_lock(): return
     try:
-        import_all(); archive_stale(); verify_due()
+        import_all()
+        cleanup_non_animal_posts()
+        archive_stale()
+        verify_due()
     finally:
         release_lock()
 
@@ -698,7 +751,7 @@ def discover_shelter_websites():
     if not r or r.status_code >= 400:
         return 0
     links = []
-    for m in re.finditer(r'href=["\\']([^"\\']+)["\\'][^>]*>(.*?)</a>', r.text, re.I | re.S):
+    for m in re.finditer(r'href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', r.text, re.I | re.S):
         href = urljoin(str(r.url), html_lib.unescape(m.group(1)))
         label = clean_text(m.group(2))
         if "/shelters/msk/" in href and label:
@@ -711,10 +764,10 @@ def discover_shelter_websites():
             continue
         candidates = []
         # Prefer an explicit "Сайт:" link from the registry page.
-        for m in re.finditer(r'(?:Сайт(?:ы)?|Сайт)\\s*:\\s*(?:<[^>]+>\\s*)?<a[^>]+href=["\\']([^"\\']+)["\\']', rr.text, re.I | re.S):
+        for m in re.finditer(r'(?:Сайт(?:ы)?|Сайт)\s*:\s*(?:<[^>]+>\s*)?<a[^>]+href=["\']([^"\']+)["\']', rr.text, re.I | re.S):
             candidates.append(urljoin(str(rr.url), html_lib.unescape(m.group(1))))
         # Also accept visible absolute links on the shelter page, excluding the registry itself.
-        for m in re.findall(r'href=["\\'](https?://[^"\\']+)["\\']', rr.text, re.I):
+        for m in re.findall(r'href=["\'](https?://[^"\']+)["\']', rr.text, re.I):
             u = html_lib.unescape(m)
             if "rospriut.ru" not in (urlparse(u).hostname or "").lower():
                 candidates.append(u)
@@ -868,8 +921,19 @@ def shelter(sid: str):
 def shelter_animals(sid: str, species: Optional[str] = None):
     with SessionLocal() as db:
         if not db.get(Shelter, sid): raise HTTPException(404, "Приют не найден")
-        stmt = select(Animal).where(Animal.shelter_id == sid, Animal.active.is_(True), Animal.status != "duplicate")
-        if species: stmt = stmt.where(Animal.species == species)
+        stmt = select(Animal).where(
+            Animal.shelter_id == sid,
+            Animal.active.is_(True),
+            Animal.status != "duplicate"
+        )
+        normalized_species = (species or "").strip().lower()
+        aliases = {
+            "cats": "cat", "кошки": "cat", "кошка": "cat", "cat": "cat",
+            "dogs": "dog", "собаки": "dog", "собака": "dog", "dog": "dog",
+            "other": "other", "другое": "other"
+        }
+        if normalized_species in aliases:
+            stmt = stmt.where(Animal.species == aliases[normalized_species])
         rows=db.scalars(stmt.order_by(Animal.created_at.desc())).all()
         out=[]
         for a in rows:
