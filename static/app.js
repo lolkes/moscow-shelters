@@ -2,19 +2,20 @@ const $=s=>document.querySelector(s);
 const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 let page=1, species='', loading=false, more=true, timer;
 const speciesName=s=>s==='cat'?'Кошка':s==='dog'?'Собака':'Животное';
+const displayName=v=>String(v??'').replace(/\s+υ.*$/u,'').trim();
 const sexName=s=>s==='male'?'Мальчик':s==='female'?'Девочка':'Пол не указан';
 const fallback=s=>s==='cat'?'🐱':s==='dog'?'🐶':'🐾';
 function photoMarkup(a){
  const photos=Array.isArray(a.photos)?a.photos.filter(Boolean):[];
  if(!photos.length)return '<div class="animal-photo placeholder">'+fallback(a.species)+'</div>';
- return '<div class="animal-photo"><img src="'+esc(photos[0])+'" alt="'+esc(a.name)+'" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.innerHTML=\'<span>'+fallback(a.species)+'</span>\'"></div>';
+ return '<div class="animal-photo"><img src="'+esc(photos[0])+'" alt="'+esc(displayName(a.name))+'" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.innerHTML=\'<span>'+fallback(a.species)+'</span>\'"></div>';
 }
 function animalCard(x){
  const a=x.animal,s=x.shelter;
- return '<article class="animal-card">'+photoMarkup(a)+'<div class="card-body"><div class="card-top"><span class="type-pill">'+fallback(a.species)+' '+speciesName(a.species)+'</span></div><h3>'+esc(a.name)+'</h3><div class="facts"><span>'+esc(a.age||'Возраст не указан')+'</span><span>'+sexName(a.sex)+'</span></div><p>'+esc((a.description||'').replace(/\s+/g,' ').slice(0,150))+'</p><div class="shelter-line">⌂ '+esc(s?.name||'Приют не указан')+'</div><a class="card-link" href="/animals/'+a.id+'">Открыть анкету <span>→</span></a></div></article>';
+ return '<article class="animal-card">'+photoMarkup(a)+'<div class="card-body"><div class="card-top"><span class="type-pill">'+fallback(a.species)+' '+speciesName(a.species)+'</span></div><h3>'+esc(displayName(a.name))+'</h3><div class="facts"><span>'+esc(a.age||'Возраст не указан')+'</span><span>'+sexName(a.sex)+'</span></div><p>'+esc((a.description||'').replace(/\s+/g,' ').slice(0,150))+'</p><div class="shelter-line">⌂ '+esc(s?.name||'Приют не указан')+'</div><a class="card-link" href="/animals/'+a.id+'">Открыть анкету <span>→</span></a></div></article>';
 }
 async function loadStats(){
- try{const s=await fetch('/api/stats').then(r=>r.json());$('#heroCount').textContent=s.animals_active??0;$('#stats').innerHTML='<div><strong>'+s.animals_active+'</strong><span>животных ищут дом</span></div><div><strong>'+s.shelters+'</strong><span>приютов в реестре</span></div><div><strong>'+s.verified_shelters+'</strong><span>проверенных источников</span></div><div><strong>'+s.sources_enabled+'</strong><span>автоматических источников</span></div>';const all=await fetch('/api/animals?limit=100').then(r=>r.json());const items=all.items||[];$('#heroDogs').textContent=items.filter(x=>x.animal.species==='dog').length;$('#heroCats').textContent=items.filter(x=>x.animal.species==='cat').length}catch(e){console.error(e)}}
+ try{const s=await fetch('/api/stats').then(r=>r.json());$('#heroCount').textContent=s.animals_active??0;$('#stats').innerHTML='<div><strong>'+s.animals_active+'</strong><span>животных ищут дом</span></div><div><strong>'+s.shelters+'</strong><span>приютов в реестре</span></div><div><strong>'+s.verified_shelters+'</strong><span>проверенных источников</span></div><div><strong>'+s.sources_enabled+'</strong><span>автоматических источников</span></div>';const all=await fetch('/api/animals?limit=100').then(r=>r.json());const items=all.items||[];$('#heroDogs').textContent=s.dogs_active??items.filter(x=>x.animal.species==='dog').length;$('#heroCats').textContent=s.cats_active??items.filter(x=>x.animal.species==='cat').length}catch(e){console.error(e)}}
 async function loadAnimals(reset=true){
  if(loading)return;loading=true;if(reset){page=1;more=true;$('#animalGrid').innerHTML='<div class="loading"><span></span><span></span><span></span></div>'}
  const q=new URLSearchParams({limit:'24',page:String(page)});const v=$('#search').value.trim(),reg=$('#region').value;if(v)q.set('q',v);if(species)q.set('species',species);if(reg)q.set('region',reg);
