@@ -185,7 +185,7 @@ def _pechatniki_listing_items(html, base_url, species, main):
             if parent is None:
                 break
             txt=main.clean_text(parent.get_text(" ", strip=True))
-            if 10 <= len(txt) <= 600 and re.search(r"\b\d+\s*(?:год|года|лет|месяц|месяца|месяцев)\b", txt, re.I) and re.search(r"\b(?:мальчик|девочка)\\b", txt, re.I):
+            if 10 <= len(txt) <= 600 and re.search(r"\b\d+\s*(?:год|года|лет|месяц|месяца|месяцев)\b", txt, re.I) and re.search(r"\b(?:мальчик|девочка)\b", txt, re.I):
                 card_text=txt
                 img=parent.find("img")
                 if img:
@@ -195,7 +195,7 @@ def _pechatniki_listing_items(html, base_url, species, main):
                 break
         if not card_text:
             continue
-        if not re.search(r"\b(?:собак|собака|пёс|пес|кош|кошка|кот)\\b", card_text+" "+name, re.I):
+        if not re.search(r"\b(?:собак|собака|пёс|пес|кош|кошка|кот)\b", card_text+" "+name, re.I):
             # Species is supplied by the catalog section; no need to reject a
             # card just because the compact listing omits the species word.
             pass
