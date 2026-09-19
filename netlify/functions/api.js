@@ -1,6 +1,10 @@
 const { neon } = require("@neondatabase/serverless");
 
-function getSql() {\n  const url = process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL;\n  if (!url) return null;\n  return neon(url);\n}
+function getSql() {
+  const url = process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL;
+  if (!url) return null;
+  return neon(url);
+}
 
 const NEWS_TERMS = [
   "благодарим","спасибо","новости","мероприят","выставк","акция",
@@ -38,7 +42,9 @@ function json(body, status=200) {
     statusCode: status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=30, s-maxage=60",\n      "access-control-allow-origin": "*",\n      "access-control-allow-methods": "GET,OPTIONS"
+      "cache-control": "public, max-age=30, s-maxage=60",
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET,OPTIONS"
     },
     body: JSON.stringify(body)
   };
@@ -46,6 +52,7 @@ function json(body, status=200) {
 function pathOf(event) {
   let p = event.path || "/";
   p = p.replace(/^.*\/.netlify\/functions\/api/, "");
+  p = p.replace(/^\/api(?=\/|$)/, "");
   if (!p || p === "/") {
     const q = event.queryStringParameters?.path;
     if (q) p = q.startsWith("/") ? q : "/" + q;
@@ -54,8 +61,20 @@ function pathOf(event) {
 }
 
 exports.handler = async (event) => {
-  if (!process.env.DATABASE_URL && !process.env.NETLIFY_DATABASE_URL) {
+  const sql = getSql();
+  if (!sql) {
     return json({ok:false,error:"DATABASE_URL is not configured"},500);
+  }
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 204,
+      headers: {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET,OPTIONS",
+        "access-control-allow-headers": "Content-Type"
+      },
+      body: ""
+    };
   }
   try {
     const path = pathOf(event);
