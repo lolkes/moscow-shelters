@@ -1,0 +1,28 @@
+[build]
+  publish = "static"
+
+# Keep the public site on Netlify while forwarding the existing FastAPI
+# backend to the current Render service. This avoids CORS for browser calls.
+[[redirects]]
+  from = "/api/*"
+  to = "https://moscow-shelters.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/animals/*"
+  to = "https://moscow-shelters.onrender.com/animals/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/shelters/*"
+  to = "https://moscow-shelters.onrender.com/shelters/:splat"
+  status = 200
+  force = true
+
+# Client-side/static routes fall back to the homepage.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
