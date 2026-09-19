@@ -1,6 +1,6 @@
 const { neon } = require("@neondatabase/serverless");
 
-const sql = neon(process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL || "");
+function getSql() {\n  const url = process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL;\n  if (!url) return null;\n  return neon(url);\n}
 
 const NEWS_TERMS = [
   "благодарим","спасибо","новости","мероприят","выставк","акция",
@@ -38,7 +38,7 @@ function json(body, status=200) {
     statusCode: status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=30, s-maxage=60"
+      "cache-control": "public, max-age=30, s-maxage=60",\n      "access-control-allow-origin": "*",\n      "access-control-allow-methods": "GET,OPTIONS"
     },
     body: JSON.stringify(body)
   };
