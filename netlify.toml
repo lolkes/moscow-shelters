@@ -1,27 +1,29 @@
 [build]
   publish = "static"
 
-# Keep the public site on Netlify while forwarding the existing FastAPI
-# backend to the current Render service. This avoids CORS for browser calls.
+[functions]
+  directory = "netlify/functions"
+
+# Public API now runs as a Netlify Function and talks directly to Neon.
 [[redirects]]
   from = "/api/*"
-  to = "https://moscow-shelters.onrender.com/api/:splat"
+  to = "/.netlify/functions/api/:splat"
   status = 200
   force = true
 
+# Pretty animal/shelter URLs stay static, while the ID is passed to the page.
 [[redirects]]
   from = "/animals/*"
-  to = "https://moscow-shelters.onrender.com/animals/:splat"
+  to = "/animal.html?id=:splat"
   status = 200
   force = true
 
 [[redirects]]
   from = "/shelters/*"
-  to = "https://moscow-shelters.onrender.com/shelters/:splat"
+  to = "/shelter.html?id=:splat"
   status = 200
   force = true
 
-# Client-side/static routes fall back to the homepage.
 [[redirects]]
   from = "/*"
   to = "/index.html"
