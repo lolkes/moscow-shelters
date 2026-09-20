@@ -172,18 +172,20 @@ exports.handler = async (event) => {
 
     if (path === "/shelters") {
       const shelters = await sql`
-        select s.*,
-               count(a.id) filter (
-                 where a.active=true and a.status<>'duplicate'
-                   and a.species in ('dog','cat')
-               )::int as animal_count
+        select s.id,s.name,s.region,s.city,s.address,s.website,s.source_url,s.verified,s.active,
+               (select count(*)::int from animals a
+                where a.shelter_id=s.id and a.active=true and a.status<>'duplicate'
+                  and a.species in ('dog','cat')) as animal_count
         from shelters s
-        left join animals a on a.shelter_id=s.id
         where s.active=true
-        group by s.id
         order by s.region,s.name
       `;
-      let out=shelters;
+      const badShelterTerms=["благодарим","спасибо","новости","мероприят","выставк","день открытых дверей","стикер","скачали","компания"];
+      let out=shelters.filter(s=>{
+        const t=normalize(s.name||"");
+        const u=String(s.website||s.source_url||"").toLowerCase();
+        return !badShelterTerms.some(x=>t.includes(x)) && !/\\/(news|novosti|blog|articles?|posts?)(\\/|$)/i.test(u);
+      });
       if(q.region) out=out.filter(s=>s.region===q.region);
       if(q.q){
         const needle=normalize(q.q);
