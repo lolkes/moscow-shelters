@@ -21,7 +21,7 @@ const ANIMAL_TERMS = [
   "собак","собака","пёс","пес","щен","кошк","кошка","кот",
   "котён","котен","dog","cat"
 ];
-const STRUCTURED = new Set(["rospriut_dog","rospriut_cat","pechatniki","yuna","dorinvest"]);
+const STRUCTURED = new Set(["rospriut_dog","rospriut_cat","pechatniki","yuna","dorinvest"]);\nconst CATEGORY_TERMS = ["собаки приюта","кошки приюта","каталог собак","каталог кошек","наши собаки","наши кошки","все собаки","все кошки"];
 
 function normalize(v="") {
   return String(v).toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu," ").replace(/\s+/g," ").trim();
@@ -165,7 +165,7 @@ exports.handler = async (event) => {
       if (!a || !a.active || a.status==="duplicate" || !realAnimal(a)) return json({detail:"Животное не найдено"},404);
       const photos=await sql`select * from animal_photos where animal_id=${id} and is_active=true order by sort_order,id`;
       return json({
-        animal:{...a,shelter_id:a.shelter_id_join,photos:photos.map(x=>x.url)},
+        animal:{...a,description:cleanDescription(a.description),shelter_id:a.shelter_id_join,photos:photos.map(x=>x.url)},
         shelter:{id:a.shelter_id_join,name:a.shelter_name,region:a.shelter_region,city:a.shelter_city,website:a.shelter_website,verified:a.shelter_verified}
       });
     }
