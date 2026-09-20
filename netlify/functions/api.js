@@ -42,8 +42,9 @@ function realAnimal(a) {
   const name = normalize(a.name || "");
   const text = normalize(`${a.name || ""} ${a.description || ""}`);
   const url = String(a.original_url || "").toLowerCase();
-  if (CATEGORY_TERMS.some(x => name === x || text.startsWith(x + " "))) return false;
-  if (/\/(news|novosti|blog|articles?|posts?|catalog)(\/|$)/i.test(url)) return false;
+  if (!["dog","cat"].includes(a.species)) return false;
+  if (CATEGORY_TERMS.some(x => name === x)) return false;
+  if (/\/(news|novosti|blog|articles?|posts?)(\/|$)/i.test(url)) return false;
   if (NEWS_TERMS.some(x => text.includes(x))) return false;
   if (STRUCTURED.has(a.source_type) && ["dog","cat"].includes(a.species)) return true;
   return PROFILE_TERMS.some(x => text.includes(x)) && ANIMAL_TERMS.some(x => text.includes(x));
