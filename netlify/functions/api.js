@@ -21,16 +21,30 @@ const ANIMAL_TERMS = [
   "собак","собака","пёс","пес","щен","кошк","кошка","кот",
   "котён","котен","dog","cat"
 ];
-const STRUCTURED = new Set(["rospriut_dog","rospriut_cat","pechatniki","yuna","dorinvest"]);\nconst CATEGORY_TERMS = ["собаки приюта","кошки приюта","каталог собак","каталог кошек","наши собаки","наши кошки","все собаки","все кошки"];
+const STRUCTURED = new Set(["rospriut_dog","rospriut_cat","pechatniki","yuna","dorinvest"]);
+const CATEGORY_TERMS = ["собаки приюта","кошки приюта","каталог собак","каталог кошек","наши собаки","наши кошки","все собаки","все кошки"];
 
 function normalize(v="") {
   return String(v).toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu," ").replace(/\s+/g," ").trim();
 }
+function cleanDescription(value="") {
+  let s = String(value ?? "");
+  s = s.replace(/<script[\s\S]*?<\/script>/gi, " ");
+  s = s.replace(/<style[\s\S]*?<\/style>/gi, " ");
+  s = s.replace(/if\s*\(\s*!?window\.BX[\s\S]*/i, " ");
+  s = s.replace(/(?:window\.BX|BX)\s*\.message[\s\S]*/i, " ");
+  s = s.replace(/<[^>]+>/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+  if (/^(собаки приюта|кошки приюта|каталог собак|каталог кошек)$/i.test(s)) return "";
+  return s.slice(0, 3000);
+}
 function realAnimal(a) {
+  const name = normalize(a.name || "");
   const text = normalize(`${a.name || ""} ${a.description || ""}`);
   const url = String(a.original_url || "").toLowerCase();
+  if (CATEGORY_TERMS.some(x => name === x || text.startsWith(x + " "))) return false;
+  if (/\/(news|novosti|blog|articles?|posts?|catalog)(\/|$)/i.test(url)) return false;
   if (NEWS_TERMS.some(x => text.includes(x))) return false;
-  if (/\/(news|novosti|blog|articles?|posts?)(\/|$)/i.test(url)) return false;
   if (STRUCTURED.has(a.source_type) && ["dog","cat"].includes(a.species)) return true;
   return PROFILE_TERMS.some(x => text.includes(x)) && ANIMAL_TERMS.some(x => text.includes(x));
 }
@@ -140,6 +154,7 @@ exports.handler = async (event) => {
         items: pageRows.map(a=>({
           animal: {
             ...a,
+            description: cleanDescription(a.description),
             shelter_id: a.shelter_id_join,
             photos: photoRows(photos,a.id)
           },
