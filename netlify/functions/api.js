@@ -171,16 +171,24 @@ exports.handler = async (event) => {
     }
 
     if (path === "/shelters") {
-      const shelters = await sql`select * from shelters where active=true order by region,name`;
-      const animals = await sql`
-        select a.*, s.region as shelter_region from animals a join shelters s on s.id=a.shelter_id
-        where a.active=true and a.status<>'duplicate'
-        limit 5000
+      const shelters = await sql`
+        select s.*,
+               count(a.id) filter (
+                 where a.active=true and a.status<>'duplicate'
+                   and a.species in ('dog','cat')
+               )::int as animal_count
+        from shelters s
+        left join animals a on a.shelter_id=s.id
+        where s.active=true
+        group by s.id
+        order by s.region,s.name
       `;
-      const real=animals.filter(realAnimal);
-      let out=shelters.map(s=>({...s,animal_count:real.filter(a=>a.shelter_id===s.id).length}));
+      let out=shelters;
       if(q.region) out=out.filter(s=>s.region===q.region);
-      if(q.q){const needle=normalize(q.q);out=out.filter(s=>normalize(s.name).includes(needle));}
+      if(q.q){
+        const needle=normalize(q.q);
+        out=out.filter(s=>normalize(s.name).includes(needle));
+      }
       return json(out);
     }
 
