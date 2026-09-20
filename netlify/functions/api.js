@@ -31,7 +31,7 @@ function realAnimal(a) {
   const url = String(a.original_url || "").toLowerCase();
   if (NEWS_TERMS.some(x => text.includes(x))) return false;
   if (/\/(news|novosti|blog|articles?|posts?)(\/|$)/i.test(url)) return false;
-  if (STRUCTURED.has(a.source_type) && ["dog","cat"].includes(a.species)) return true;
+  if (["dog","cat"].includes(a.species)) return true;
   return PROFILE_TERMS.some(x => text.includes(x)) && ANIMAL_TERMS.some(x => text.includes(x));
 }
 function photoRows(rows, id) {
