@@ -50,7 +50,13 @@ function realAnimal(a) {
   return PROFILE_TERMS.some(x => text.includes(x)) && ANIMAL_TERMS.some(x => text.includes(x));
 }
 function photoRows(rows, id) {
-  return rows.filter(x => Number(x.animal_id) === Number(id)).sort((a,b) => (a.sort_order||0)-(b.sort_order||0) || a.id-b.id).map(x=>x.url);
+  return rows.filter(x => Number(x.animal_id) === Number(id) && x.url)
+    .sort((a,b) => (a.sort_order||0)-(b.sort_order||0) || a.id-b.id)
+    .map(x=>String(x.url))
+    .filter(u=>!/(?:^|[\\/_-])(logo|cropped-logo|favicon|icon)(?:[\\d_-]|\\.|$)/i.test(u))
+    .filter((u,i,a)=>a.indexOf(u)===i)
+    .slice(0,8)
+    .map(u=>"/api/image?url="+encodeURIComponent(u));
 }
 function json(body, status=200) {
   return {
@@ -96,6 +102,21 @@ exports.handler = async (event) => {
   try {
     const path = pathOf(event);
     const q = event.queryStringParameters || {};
+
+    if (path === "/image") {
+      const target = q.url || "";
+      if (!/^https?:\\/\\//i.test(target)) return json({detail:"Invalid image URL"},400);
+      try {
+        const r = await fetch(target, {headers: {"user-agent":"Mozilla/5.0 (compatible; DomDlyaHvosta/1.0)","accept":"image/avif,image/webp,image/apng,image/*,*/*;q=0.8"}});
+        if (!r.ok) return json({detail:"Image source unavailable"},502);
+        const type = r.headers.get("content-type") || "image/jpeg";
+        if (!type.startsWith("image/")) return json({detail:"Not an image"},415);
+        const buf = Buffer.from(await r.arrayBuffer());
+        return {statusCode:200,headers:{"content-type":type,"cache-control":"public,max-age=86400,s-maxage=604800"},isBase64Encoded:true,body:buf.toString("base64")};
+      } catch(e) {
+        return json({detail:"Image fetch failed"},502);
+      }
+    }
 
     if (path === "/health") {
       const r = await sql`select count(*)::int as shelters from shelters`;
@@ -181,7 +202,7 @@ exports.handler = async (event) => {
       if (!a || !a.active || a.status==="duplicate" || !realAnimal(a)) return json({detail:"Животное не найдено"},404);
       const photos=await sql`select * from animal_photos where animal_id=${id} and is_active=true order by sort_order,id`;
       return json({
-        animal:{...a,description:cleanDescription(a.description),shelter_id:a.shelter_id_join,photos:photos.map(x=>x.url)},
+        animal:{...a,description:cleanDescription(a.description),shelter_id:a.shelter_id_join,photos:photoRows(photos,id)},
         shelter:{id:a.shelter_id_join,name:a.shelter_name,region:a.shelter_region,city:a.shelter_city,website:a.shelter_website,verified:a.shelter_verified}
       });
     }
