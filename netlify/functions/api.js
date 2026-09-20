@@ -61,9 +61,11 @@ function pathOf(event) {
 }
 
 exports.handler = async (event) => {
+  const rawDbUrl = process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL || "";
+  const dbHost = (() => { try { return rawDbUrl ? new URL(rawDbUrl.replace(/^postgres(ql)?:\/\//, "https://")).hostname : null; } catch (_) { return null; } })();
   const sql = getSql();
   if (!sql) {
-    return json({ok:false,error:"DATABASE_URL is not configured"},500);
+    return json({ok:false,error:"DATABASE_URL is not configured",database_configured:false},500);
   }
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -82,7 +84,8 @@ exports.handler = async (event) => {
 
     if (path === "/health") {
       const r = await sql`select count(*)::int as shelters from shelters`;
-      return json({ok:true,time:new Date().toISOString(),shelters:r[0]?.shelters||0});
+      const a = await sql`select count(*)::int as animals from animals where active=true and status <> 'duplicate'`;
+      return json({ok:true,time:new Date().toISOString(),database_configured:true,database_host:dbHost,shelters:r[0]?.shelters||0,animals:a[0]?.animals||0});
     }
 
     if (path === "/stats") {
