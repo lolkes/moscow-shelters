@@ -171,7 +171,11 @@ exports.handler = async (event) => {
       const page = Math.max(Number(q.page||1),1);
       const pageRows = items.slice((page-1)*limit, page*limit);
       const ids = pageRows.map(a=>a.id);
-      const photos = ids.length ? await sql`select * from animal_photos where animal_id = any(${ids}) and is_active=true order by sort_order,id` : [];
+      // Neon parameter binding can be inconsistent with JS arrays in ANY(...).
+      // The table is small enough here to fetch active photos once and filter in JS.
+      const photos = ids.length
+        ? await sql`select * from animal_photos where is_active=true order by sort_order,id`
+        : [];
       return json({
         items: pageRows.map(a=>({
           animal: {
@@ -250,7 +254,9 @@ exports.handler = async (event) => {
       let real=rows.filter(realAnimal);
       if(species) real=real.filter(a=>a.species===species);
       const ids=real.map(a=>a.id);
-      const photos=ids.length?await sql`select * from animal_photos where animal_id=any(${ids}) and is_active=true order by sort_order,id`:[];
+      const photos=ids.length
+        ? await sql`select * from animal_photos where is_active=true order by sort_order,id`
+        : [];
       return json(real.map(a=>({...a,photos:photoRows(photos,a.id)})));
     }
 
