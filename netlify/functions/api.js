@@ -184,7 +184,7 @@ exports.handler = async (event) => {
       let out=shelters.filter(s=>{
         const t=normalize(s.name||"");
         const u=String(s.website||s.source_url||"").toLowerCase();
-        return !badShelterTerms.some(x=>t.includes(x)) && !/\\/(news|novosti|blog|articles?|posts?)(\\/|$)/i.test(u);
+        return !badShelterTerms.some(x=>t.includes(x)) && !/\/(news|novosti|blog|articles?|posts?)(\/|$)/i.test(u);
       });
       if(q.region) out=out.filter(s=>s.region===q.region);
       if(q.q){
